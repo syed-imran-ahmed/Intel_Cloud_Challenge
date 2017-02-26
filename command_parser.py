@@ -115,7 +115,7 @@ def run_command(command):
                          stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT)
 
-    watcher = Thread(target=kill_on_timeout, args=(done, 5, proc))
+    watcher = Thread(target=kill_on_timeout, args=(done, TIMEOUT, proc))
     watcher.daemon = True
     watcher.start()
 
