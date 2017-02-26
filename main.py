@@ -10,7 +10,8 @@ from flask_swagger import swagger
 
 from db import session, engine
 from base import Base, Command
-from command_parser import get_valid_commands, process_command_output
+from command_parser import get_valid_commands, process_command_output, get_valid_commands_using_data
+from sqlalchemy.exc import IntegrityError
 
 app = Flask(__name__)
 
@@ -29,10 +30,67 @@ def get_command_output():
     """
 
     # TODO: format the query result
+
     cols = ['id', 'command_string', 'length', 'duration', 'output']
-    commands = session.query(Command)
-    result = [{col: getattr(d, col) for col in cols} for d in commands]
-    return jsonify(result=result)
+
+    #query based on the id
+    if 'id' in request.args:
+        try:
+            commands = session.query(Command).get(request.args.get('id'))
+            if commands is None:
+                resp = jsonify({'No such command id exists': request.args.get('id')})
+                resp.status_code = 400
+                return resp
+
+            result = {'id':commands.id, 'command_string':commands.command_string, 'length': commands.length, 'duration': commands.duration, 
+            'output':commands.output}
+            resp =jsonify(result)
+            resp.status_code = 200
+            return resp
+
+        except IntegrityError as e:
+            resp = jsonify({'Integrity Error': str(e)})
+            resp.status_code = 400
+            return resp
+
+    #query based on the command string
+    elif 'command' in request.args:
+        try:
+            commands=session.query(Command).filter(Command.command_string==request.args.get('command')).one_or_none()
+            if commands is None:
+                resp = jsonify({'No such command exists': request.args.get('command')})
+                resp.status_code = 400
+                return resp
+
+            result = {'id':commands.id, 'command_string':commands.command_string, 'length': commands.length, 'duration': commands.duration, 
+            'output':commands.output}
+            resp =jsonify(result)
+            resp.status_code = 200
+            return resp
+
+        except IntegrityError as e:
+            resp = jsonify({'Integrity Error': str(e)})
+            resp.status_code = 400
+            return resp
+
+    #fetch all the command list
+    else:    
+        try:
+            commands = session.query(Command)
+            result = [{col: getattr(d, col) for col in cols} for d in commands]
+            if len(result) == 0:
+                resp =jsonify({'Commands not found': None})
+                resp.status_code = 400
+                return resp
+            else:
+                resp =jsonify(result=result)
+                resp.status_code = 200
+                return resp
+
+        except IntegrityError as e:
+            resp = jsonify({'Integrity Error': str(e)})
+            resp.status_code = 400
+            return resp
 
 
 @app.route('/commands', methods=['POST'])
@@ -54,7 +112,14 @@ def process_commands():
     fi = request.args.get('filename')
 
     queue = Queue()
-    get_valid_commands(queue, fi)
+    # If the argument contains 'file_data' then the commands data is coming from POST body
+    if 'file_data' in request.args:
+        get_valid_commands_using_data(queue,data=request.get_data(as_text=False))
+    # If the 'commands.txt' file is passed then parse the file     
+    else:
+        get_valid_commands(queue, fi)
+    
+
     processes = [Process(target=process_command_output, args=(queue,))
                  for num in range(2)]
 
